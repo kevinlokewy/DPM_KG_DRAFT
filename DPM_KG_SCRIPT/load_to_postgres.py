@@ -191,6 +191,22 @@ enterprise_df   = drop_selected(enterprise_df)
 #       drop the table and recreate it without the primary key.
 # ================================================
 
+with engine.begin() as conn:
+    conn.exec_driver_sql("""
+        TRUNCATE TABLE
+            staging.reason_tree_node,
+            staging.machine_code,
+            staging.model_reason_tree_link,
+            staging.reason_tree,
+            staging.reason,
+            staging.workunit,
+            staging.workcenter,
+            staging.area,
+            staging.site,
+            staging.enterprise
+        RESTART IDENTITY CASCADE;
+    """)
+    
 print("Loading reason...")
 reason_df.to_sql(
     name='reason',

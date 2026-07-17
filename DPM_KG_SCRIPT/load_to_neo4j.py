@@ -46,6 +46,7 @@ categories = pd.read_sql("""
 # ReasonTree nodes + HAS_REASON_TREE
 trees = pd.read_sql("""
     SELECT DISTINCT
+                    id,
         reason_category_name AS category_name,
         name AS tree_name,
         description,
@@ -55,13 +56,14 @@ trees = pd.read_sql("""
 
 # All Reason nodes including intermediates
 reasons = pd.read_sql("""
-    SELECT name, display_name, display_name_token AS token,
+    SELECT id, name, display_name, display_name_token AS token,
            description, FALSE AS is_intermediate
     FROM staging.reason
 
     UNION
 
     SELECT DISTINCT
+        rtn.id,
         rtn.reason_name AS name,
         rtn.reason_name AS display_name,
         NULL AS token,
@@ -76,7 +78,7 @@ reasons = pd.read_sql("""
 
 # MODEL NODES (called Workunit in Neo4j graph)
 models = pd.read_sql("""
-    SELECT DISTINCT model_name
+    SELECT DISTINCT id, model_name
     FROM staging.model_reason_tree_link
 """, db_engine)
 
@@ -108,6 +110,7 @@ children = pd.read_sql("""
 #Called Workunit in Neo4j Graph
 model_reason_links = pd.read_sql("""
     SELECT
+        id,
         model_name,
         reason_tree_name
     FROM staging.model_reason_tree_link
@@ -115,7 +118,8 @@ model_reason_links = pd.read_sql("""
 
 # MachineCode — HAS_POSSIBLE_REASON relationships (Each workunit has a possible reason of failure)
 machine_codes = pd.read_sql("""
-    SELECT 
+    SELECT
+        id,
         model_name,
         reason_name,
         reason_tree_name,
@@ -131,7 +135,8 @@ print(f"  {len(machine_codes)} HAS_POSSIBLE_REASON relationships")
 #Relationship that points from workunit to work center
 workunit_links = pd.read_sql("""
     SELECT
-        name            AS workunit_name,
+        id,
+        name AS workunit_name,
         description,
         thing_name,
         is_pacemaker,
@@ -143,6 +148,7 @@ workunit_links = pd.read_sql("""
 # WorkCenter nodes
 workcenters = pd.read_sql("""
     SELECT
+        id,
         name,
         description,
         thing_name,
@@ -154,6 +160,7 @@ workcenters = pd.read_sql("""
 
 areas = pd.read_sql("""
         SELECT
+            id,
             name,
             description,
             thing_name,
@@ -165,7 +172,8 @@ areas = pd.read_sql("""
 # WorkCenter to Area link (for HAS_WORKCENTER relationship)
 workcenter_links = pd.read_sql("""
     SELECT
-        name            AS workcenter_name,
+        id,
+        name AS workcenter_name,
         area_name
     FROM staging.workcenter
     ORDER BY area_name, name
@@ -174,6 +182,7 @@ workcenter_links = pd.read_sql("""
 # Site nodes
 sites = pd.read_sql("""
     SELECT
+        id,
         name,
         description,
         thing_name,
@@ -189,6 +198,7 @@ sites = pd.read_sql("""
 # Area to Site link (for HAS_AREA relationship)
 area_links = pd.read_sql("""
     SELECT
+        id,
         name        AS area_name,
         site_name
     FROM staging.area
@@ -198,6 +208,7 @@ area_links = pd.read_sql("""
 #Enterprise node
 enterprises = pd.read_sql("""
     SELECT
+        id,
         name,
         description,
         thing_name,
@@ -208,6 +219,7 @@ enterprises = pd.read_sql("""
 #Site to Enterprise link (HAS_SITE relationship)
 site_links = pd.read_sql("""
     SELECT
+        s.id,
         s.name          AS site_name,
         e.name          AS enterprise_name
     FROM staging.site s
@@ -217,6 +229,7 @@ site_links = pd.read_sql("""
 # Create ALL WorkUnit nodes from staging.workunit
 all_workunits = pd.read_sql("""
         SELECT
+            id,
             name,
             description,
             thing_name,
@@ -261,46 +274,68 @@ with neo4j_driver.session(database="DPM") as session:
 
     # Step 2: ReasonTree nodes + HAS_REASON_TREE relationships
     print("Creating ReasonTree nodes and HAS_REASON_TREE relationships...")
+
     for _, row in trees.iterrows():
-        if pd.notna(row['category_name']):
+
+        if pd.notna(row["category_name"]):
+
             session.run("""
-                MERGE (t:ReasonTree {name: $tree_name})
-                SET t.description = $description,
+                MERGE (t:ReasonTree {id: $id})
+                SET
+                    t.name = $tree_name,
+                    t.description = $description,
                     t.enabled = $enabled
+
                 WITH t
+
                 MATCH (c:ReasonCategory {name: $category_name})
+
                 MERGE (c)-[:HAS_REASON_TREE]->(t)
             """,
-        tree_name=row['tree_name'],
-        description=row['description'],
-        enabled=bool(row['enabled']) if pd.notna(row['enabled']) else False,
-        category_name=row['category_name'])
+            id=int(row["id"]),
+            tree_name=row["tree_name"],
+            description=row["description"],
+            enabled=bool(row["enabled"]) if pd.notna(row["enabled"]) else False,
+            category_name=row["category_name"])
+
         else:
-            # Running and Unknown Fault have no category
+
             session.run("""
-                MERGE (t:ReasonTree {name: $tree_name})
-                SET t.description = $description,
+                MERGE (t:ReasonTree {id: $id})
+                SET
+                    t.name = $tree_name,
+                    t.description = $description,
                     t.enabled = $enabled
             """,
-            tree_name=row['tree_name'],
-            description=row['description'],
-            enabled=bool(row['enabled']) if pd.notna(row['enabled']) else False)
+            id=int(row["id"]),
+            tree_name=row["tree_name"],
+            description=row["description"],
+            enabled=bool(row["enabled"]) if pd.notna(row["enabled"]) else False)
+
+    print(f"  Done — {len(trees)} nodes + relationships")
+
         
     # Step 3: Reason nodes
     print("Creating Reason nodes...")
+
     for _, row in reasons.iterrows():
+
         session.run("""
             MERGE (r:Reason {name: $name})
-            SET r.displayName = $display_name,
+            SET
+                r.reason_id   = $reason_id,
+                r.displayName = $display_name,
                 r.displayNameToken = $token,
                 r.description = $description,
                 r.isIntermediate = $is_intermediate
         """,
-        name=row['name'],
-        display_name=row['display_name'] if pd.notna(row['display_name']) else None,
-        token=row['token'] if pd.notna(row['token']) else None,
-        description=row['description'] if pd.notna(row['description']) else None,
-        is_intermediate=bool(row['is_intermediate']))
+        reason_id=int(row["id"]),
+        name=row["name"],
+        display_name=row["display_name"] if pd.notna(row["display_name"]) else None,
+        token=row["token"] if pd.notna(row["token"]) else None,
+        description=row["description"] if pd.notna(row["description"]) else None,
+        is_intermediate=bool(row["is_intermediate"]))
+
     print(f"  Done — {len(reasons)} nodes")
 
     # After loading all Reason nodes, fix isIntermediate based on graph structure
@@ -339,14 +374,20 @@ with neo4j_driver.session(database="DPM") as session:
         enabled=bool(row['enabled']))
     print(f"  Done — {len(children)} relationships")
 
-    print("Creating WorkUnit nodes...")
-    for _, row in models.iterrows():
+    print("Creating all WorkUnit nodes...")
+    for _, row in all_workunits.iterrows():
         session.run("""
-            MERGE (:WorkUnit {name: $model_name})
+            MERGE (wu:WorkUnit {name: $name})
+            SET wu.description  = $description,
+                wu.thingName    = $thing_name,
+                wu.isPacemaker  = $is_pacemaker
         """,
-        model_name=row["model_name"])
+        name=row['name'],
+        description=row['description'] if pd.notna(row['description']) else None,
+        thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
+        is_pacemaker=bool(row['is_pacemaker']) if pd.notna(row['is_pacemaker']) else False)
+    print(f"  Done — {len(all_workunits)} WorkUnit nodes")
 
-    print(f"  Done — {len(models)} nodes")
 
     print("Creating USES_REASON_TREE relationships...")
 
@@ -386,11 +427,14 @@ with neo4j_driver.session(database="DPM") as session:
     print("Updating WorkUnit node properties...")
     for _, row in workunit_links.iterrows():
         session.run("""
-            MATCH (wu:WorkUnit {name: $name})
-            SET wu.description  = $description,
+            MATCH (wu:WorkUnit {id: $id})
+            SET 
+                wu.name         = $name,
+                wu.description  = $description,
                 wu.thingName    = $thing_name,
                 wu.isPacemaker  = $is_pacemaker
         """,
+        id=int(row["id"]),
         name=row['workunit_name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
@@ -401,18 +445,21 @@ with neo4j_driver.session(database="DPM") as session:
     print("Creating WorkCenter nodes...")
     for _, row in workcenters.iterrows():
         session.run("""
-            MERGE (wc:WorkCenter {name: $name})
-            SET wc.description  = $description,
+            MERGE (wc:WorkCenter {id: $id})
+            SET 
+                wc.name         = $name,
+                wc.description  = $description,
                 wc.thingName    = $thing_name,
                 wc.targetOEE    = $target_oee
         """,
+        id=int(row["id"]),
         name=row['name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
         target_oee=float(row['target_oee']) if pd.notna(row['target_oee']) else None)
     print(f"  Done — {len(workcenters)} WorkCenter nodes")
 
-# Step X+2: HAS_WORKUNIT relationships (WorkCenter → WorkUnit)
+# Step 11: HAS_WORKUNIT relationships (WorkCenter → WorkUnit)
     print("Creating HAS_WORKUNIT relationships...")
     for _, row in workunit_links.iterrows():
         session.run("""
@@ -428,10 +475,13 @@ with neo4j_driver.session(database="DPM") as session:
     print("Creating Area nodes...")
     for _, row in areas.iterrows():
         session.run("""
-            MERGE (a:Area {name: $name})
-            SET a.description   = $description,
+            MERGE (a:Area {id: $id})
+            SET 
+                a.name          = $name,
+                a.description   = $description,
                 a.thingName     = $thing_name
         """,
+        id=int(row["id"]),
         name=row['name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None)
@@ -453,13 +503,16 @@ with neo4j_driver.session(database="DPM") as session:
     print("Creating Site nodes...")
     for _, row in sites.iterrows():
         session.run("""
-            MERGE (s:Site {name: $name})
-            SET s.description   = $description,
+            MERGE (s:Site {id: $id})
+            SET 
+                s.name          = $name,
+                s.description   = $description,
                 s.thingName     = $thing_name,
                 s.targetOEE     = $target_oee,
                 s.timeZone      = $time_zone,
                 s.regionName    = $region_name
         """,
+        id=int(row["id"]),
         name=row['name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
@@ -484,11 +537,12 @@ with neo4j_driver.session(database="DPM") as session:
     print("Creating Enterprise node...")
     for _, row in enterprises.iterrows():
         session.run("""
-            MERGE (e:Enterprise {name: $name})
+            MERGE (e:Enterprise {id: $id})
             SET e.description           = $description,
                 e.thingName             = $thing_name,
                 e.isDefaultEnterprise   = $is_default
         """,
+        id=int(row["id"]),
         name=row['name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
@@ -508,20 +562,6 @@ with neo4j_driver.session(database="DPM") as session:
     print(f"  Done — {len(site_links)} HAS_SITE relationships")
 
 
-    print("Creating all WorkUnit nodes...")
-    for _, row in all_workunits.iterrows():
-        session.run("""
-            MERGE (wu:WorkUnit {name: $name})
-            SET wu.description  = $description,
-                wu.thingName    = $thing_name,
-                wu.isPacemaker  = $is_pacemaker
-        """,
-        name=row['name'],
-        description=row['description'] if pd.notna(row['description']) else None,
-        thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
-        is_pacemaker=bool(row['is_pacemaker']) if pd.notna(row['is_pacemaker']) else False)
-    print(f"  Done — {len(all_workunits)} WorkUnit nodes")
-
     # Rerun HAS_WORKUNIT relationships
     for _, row in workunit_links.iterrows():
         session.run("""
@@ -536,3 +576,5 @@ with neo4j_driver.session(database="DPM") as session:
 neo4j_driver.close()
 db_engine.dispose()
 print("\nAll done — reason tree loaded into Neo4j")
+
+ 
