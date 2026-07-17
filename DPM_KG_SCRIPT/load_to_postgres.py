@@ -36,24 +36,35 @@ engine = create_engine(connection_url)
 excel_path = Path(__file__).parent.parent / "DPM.Sample.1.2.14.xlsx"
 xl = pd.ExcelFile(excel_path, engine='openpyxl')
 
-reason_df = pd.read_excel(xl, sheet_name='Reason')
-tree_df = pd.read_excel(xl, sheet_name='ReasonTree')
-node_df = pd.read_excel(xl, sheet_name='ReasonTreeNode')
-model_df = pd.read_excel(xl, sheet_name='ModelReasonTreeLink')
-machinecode_df = pd.read_excel(xl, sheet_name='MachineCode')
-workunit_df = pd.read_excel(xl, sheet_name="Workunit")
-workcenter_df = pd.read_excel(xl, sheet_name='Workcenter')
-area_df = pd.read_excel(xl, sheet_name='Area')
-site_df = pd.read_excel(xl, sheet_name='Site')
-enterprise_df = pd.read_excel(xl, sheet_name='Enterprise')
+reason_df       = pd.read_excel(xl, sheet_name='Reason')
+tree_df         = pd.read_excel(xl, sheet_name='ReasonTree')
+node_df         = pd.read_excel(xl, sheet_name='ReasonTreeNode')
+model_df        = pd.read_excel(xl, sheet_name='ModelReasonTreeLink')
+machinecode_df  = pd.read_excel(xl, sheet_name='MachineCode')
+workunit_df     = pd.read_excel(xl, sheet_name='Workunit')
+workcenter_df   = pd.read_excel(xl, sheet_name='Workcenter')
+area_df         = pd.read_excel(xl, sheet_name='Area')
+site_df         = pd.read_excel(xl, sheet_name='Site')
+enterprise_df   = pd.read_excel(xl, sheet_name='Enterprise')
 
+node_df = node_df.loc[:, ~node_df.columns.str.contains("^Unnamed")]
+
+# ================================================
+# HELPER — Drop selected column
+# ================================================
+
+def drop_selected(df):
+    """Drop the Selected/selected column — replaced by SERIAL PRIMARY KEY in PostgreSQL."""
+    for col in ['Selected', 'selected']:
+        if col in df.columns:
+            df = df.drop(columns=[col])
+    return df
 
 # ================================================
 # RENAME COLUMNS TO MATCH TABLE DEFINITIONS
 # ================================================
 
 reason_df = reason_df.rename(columns={
-    'Selected':             'selected',
     'Name':                 'name',
     'DisplayName':          'display_name',
     'DisplayNameToken':     'display_name_token',
@@ -62,7 +73,6 @@ reason_df = reason_df.rename(columns={
 })
 
 tree_df = tree_df.rename(columns={
-    'Selected':             'selected',
     'Name':                 'name',
     'Description':          'description',
     'Enable':               'enabled',
@@ -70,7 +80,6 @@ tree_df = tree_df.rename(columns={
 })
 
 node_df = node_df.rename(columns={
-    'Selected':             'selected',
     'ParentReasonName':     'parent_reason_name',
     'ReasonName':           'reason_name',
     'ReasonTreeName':       'reason_tree_name',
@@ -78,38 +87,35 @@ node_df = node_df.rename(columns={
     'Enable':               'enabled'
 })
 
-model_df = model_df.rename(columns ={
-    'Selected':             'selected',
+model_df = model_df.rename(columns={
     'ModelName':            'model_name',
     'ReasonTreeName':       'reason_tree_name'
 })
 
-machinecode_df = machinecode_df.rename(columns ={
-    'Selected':             'selected',
+machinecode_df = machinecode_df.rename(columns={
     'ModelName':            'model_name',
     'ReasonName':           'reason_name',
     'ReasonTreeName':       'reason_tree_name',
     'Name':                 'name',
     'Description':          'description',
     'CodeValue':            'code_value'
-
 })
 
 workunit_df = workunit_df.rename(columns={
-    'Selected':         'selected',
-    'Name':             'name',
-    'Description':      'description',
-    'ThingName':        'thing_name',
-    'Source':           'source',
-    'IsPacemaker':      'is_pacemaker',
-    'WorkcenterName':   'workcenter_name',
-    'BaseTemplate':     'base_template',
-    'ProjectName':      'project_name',
-    'ThingShapes':      'thing_shapes'
+    'Name':                         'name',
+    'Description':                  'description',
+    'ThingName':                    'thing_name',
+    'Source':                       'source',
+    'IsPacemaker':                  'is_pacemaker',
+    'WorkcenterName':               'workcenter_name',
+    'BaseTemplate':                 'base_template',
+    'ProjectName':                  'project_name',
+    'ThingShapes':                  'thing_shapes',
+    'IndustrialThing':              'industrial_thing',
+    'IndustrialGatewayThingName':   'industrial_gateway_thing_name'
 })
 
 workcenter_df = workcenter_df.rename(columns={
-    'Selected':                 'selected',
     'Name':                     'name',
     'Description':              'description',
     'ThingName':                'thing_name',
@@ -124,9 +130,8 @@ workcenter_df = workcenter_df.rename(columns={
 })
 
 area_df = area_df.rename(columns={
-    'Selected':     'selected',
     'Name':         'name',
-    'Description':  'description', 
+    'Description':  'description',
     'ThingName':    'thing_name',
     'Source':       'source',
     'SiteName':     'site_name',
@@ -136,12 +141,11 @@ area_df = area_df.rename(columns={
 })
 
 site_df = site_df.rename(columns={
-    'Selected':                 'selected',
     'Name':                     'name',
     'Description':              'description',
     'ThingName':                'thing_name',
     'TargetOEE':                'target_oee',
-    'ID':                       'id',
+    'ID':                       'site_id',
     'TimeZone':                 'time_zone',
     'WorldClassOEE':            'world_class_oee',
     'OEEOKThreshold':           'oee_ok_threshold',
@@ -155,7 +159,6 @@ site_df = site_df.rename(columns={
 })
 
 enterprise_df = enterprise_df.rename(columns={
-    'Selected':             'selected',
     'Name':                 'name',
     'Description':          'description',
     'ThingName':            'thing_name',
@@ -167,7 +170,25 @@ enterprise_df = enterprise_df.rename(columns={
 })
 
 # ================================================
+# DROP SELECTED COLUMN FROM ALL DATAFRAMES
+# ================================================
+
+reason_df       = drop_selected(reason_df)
+tree_df         = drop_selected(tree_df)
+node_df         = drop_selected(node_df)
+model_df        = drop_selected(model_df)
+machinecode_df  = drop_selected(machinecode_df)
+workunit_df     = drop_selected(workunit_df)
+workcenter_df   = drop_selected(workcenter_df)
+area_df         = drop_selected(area_df)
+site_df         = drop_selected(site_df)
+enterprise_df   = drop_selected(enterprise_df)
+
+# ================================================
 # LOAD INTO POSTGRESQL
+# NOTE: if_exists='append' preserves the SERIAL PRIMARY KEY
+#       created in pgAdmin. Do NOT use 'replace' as it would
+#       drop the table and recreate it without the primary key.
 # ================================================
 
 print("Loading reason...")
@@ -175,7 +196,7 @@ reason_df.to_sql(
     name='reason',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
 print(f"  {len(reason_df)} rows loaded")
@@ -185,7 +206,7 @@ tree_df.to_sql(
     name='reason_tree',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
 print(f"  {len(tree_df)} rows loaded")
@@ -195,50 +216,47 @@ node_df.to_sql(
     name='reason_tree_node',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
 print(f"  {len(node_df)} rows loaded")
 
-print("Loading models...")
+print("Loading model_reason_tree_link...")
 model_df.to_sql(
     name='model_reason_tree_link',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
-print(f"  {len(node_df)} rows loaded")
+print(f"  {len(model_df)} rows loaded")
 
-print("Loading machine code...")
+print("Loading machine_code...")
 machinecode_df.to_sql(
     name='machine_code',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
-
-print(f" {len(machinecode_df)} rows loaded")
-
+print(f"  {len(machinecode_df)} rows loaded")
 
 print("Loading workunit...")
 workunit_df.to_sql(
     name='workunit',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
 print(f"  {len(workunit_df)} rows loaded")
-
 
 print("Loading workcenter...")
 workcenter_df.to_sql(
     name='workcenter',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
 print(f"  {len(workcenter_df)} rows loaded")
@@ -248,19 +266,17 @@ area_df.to_sql(
     name='area',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
-
 print(f"  {len(area_df)} rows loaded")
-
 
 print("Loading site...")
 site_df.to_sql(
     name='site',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
 print(f"  {len(site_df)} rows loaded")
@@ -270,7 +286,7 @@ enterprise_df.to_sql(
     name='enterprise',
     schema='staging',
     con=engine,
-    if_exists='replace',
+    if_exists='append',
     index=False
 )
 print(f"  {len(enterprise_df)} rows loaded")
