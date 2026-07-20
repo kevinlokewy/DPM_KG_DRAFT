@@ -216,6 +216,7 @@ enterprises = pd.read_sql("""
     FROM staging.enterprise
 """, db_engine)
 
+
 #Site to Enterprise link (HAS_SITE relationship)
 site_links = pd.read_sql("""
     SELECT
@@ -280,8 +281,9 @@ with neo4j_driver.session(database="DPM") as session:
         if pd.notna(row["category_name"]):
 
             session.run("""
-                MERGE (t:ReasonTree {id: $id})
+                MERGE (t:ReasonTree {name: $tree_name})
                 SET
+                    t.reason_tree_id = $reason_tree_id,
                     t.name = $tree_name,
                     t.description = $description,
                     t.enabled = $enabled
@@ -292,7 +294,7 @@ with neo4j_driver.session(database="DPM") as session:
 
                 MERGE (c)-[:HAS_REASON_TREE]->(t)
             """,
-            id=int(row["id"]),
+            reason_tree_id=int(row["id"]),
             tree_name=row["tree_name"],
             description=row["description"],
             enabled=bool(row["enabled"]) if pd.notna(row["enabled"]) else False,
@@ -338,13 +340,6 @@ with neo4j_driver.session(database="DPM") as session:
 
     print(f"  Done — {len(reasons)} nodes")
 
-    # After loading all Reason nodes, fix isIntermediate based on graph structure
-    print("Fixing isIntermediate properties...")
-    session.run("""
-        MATCH (r:Reason)-[:HAS_REASON_CHILD]->(:Reason)
-        SET r.isIntermediate = true
-    """)
-    print("  Done")
 
     # Step 4: CONTAINS_REASON relationships
     print("Creating CONTAINS_REASON relationships...")
@@ -374,14 +369,26 @@ with neo4j_driver.session(database="DPM") as session:
         enabled=bool(row['enabled']))
     print(f"  Done — {len(children)} relationships")
 
+     # After loading all Reason nodes, fix isIntermediate based on graph structure
+    print("Fixing isIntermediate properties...")
+    session.run("""
+        MATCH (r:Reason)-[:HAS_REASON_CHILD]->(:Reason)
+        SET r.isIntermediate = true
+    """)
+    print("  Done")
+
     print("Creating all WorkUnit nodes...")
     for _, row in all_workunits.iterrows():
         session.run("""
             MERGE (wu:WorkUnit {name: $name})
-            SET wu.description  = $description,
+            SET 
+                wu.work_unit_id = $work_unit_id,
+                wu.description  = $description,
                 wu.thingName    = $thing_name,
                 wu.isPacemaker  = $is_pacemaker
+                
         """,
+        work_unit_id=int(row["id"]),
         name=row['name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
@@ -424,35 +431,37 @@ with neo4j_driver.session(database="DPM") as session:
     print(f"  Done — {len(machine_codes)} relationships")
 
     # Step X: Update existing WorkUnit nodes with new properties
-    print("Updating WorkUnit node properties...")
-    for _, row in workunit_links.iterrows():
-        session.run("""
-            MATCH (wu:WorkUnit {id: $id})
-            SET 
-                wu.name         = $name,
-                wu.description  = $description,
-                wu.thingName    = $thing_name,
-                wu.isPacemaker  = $is_pacemaker
-        """,
-        id=int(row["id"]),
-        name=row['workunit_name'],
-        description=row['description'] if pd.notna(row['description']) else None,
-        thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
-        is_pacemaker=bool(row['is_pacemaker']) if pd.notna(row['is_pacemaker']) else False)
-    print(f"  Done — {len(workunit_links)} WorkUnit nodes updated")
+    # print("Updating WorkUnit node properties...")
+    # for _, row in workunit_links.iterrows():
+    #     session.run("""
+    #         MATCH (wu:WorkUnit {id: $id})
+    #         SET 
+    #             wu.id           = $id,
+    #             wu.name         = $name,
+    #             wu.description  = $description,
+    #             wu.thingName    = $thing_name,
+    #             wu.isPacemaker  = $is_pacemaker
+    #     """,
+    #     id=int(row["id"]),
+    #     name=row['workunit_name'],
+    #     description=row['description'] if pd.notna(row['description']) else None,
+    #     thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
+    #     is_pacemaker=bool(row['is_pacemaker']) if pd.notna(row['is_pacemaker']) else False)
+    # print(f"  Done — {len(workunit_links)} WorkUnit nodes updated")
 
     # Step X+1: WorkCenter nodes
     print("Creating WorkCenter nodes...")
     for _, row in workcenters.iterrows():
         session.run("""
-            MERGE (wc:WorkCenter {id: $id})
+            MERGE (wc:WorkCenter {name: $name})
             SET 
+                wc.work_center_id = $work_center_id,
                 wc.name         = $name,
                 wc.description  = $description,
                 wc.thingName    = $thing_name,
                 wc.targetOEE    = $target_oee
         """,
-        id=int(row["id"]),
+        work_center_id=int(row["id"]),
         name=row['name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
@@ -475,13 +484,14 @@ with neo4j_driver.session(database="DPM") as session:
     print("Creating Area nodes...")
     for _, row in areas.iterrows():
         session.run("""
-            MERGE (a:Area {id: $id})
+            MERGE (a:Area {name: $name})
             SET 
+                a.area_id       = $area_id,
                 a.name          = $name,
                 a.description   = $description,
                 a.thingName     = $thing_name
         """,
-        id=int(row["id"]),
+        area_id=int(row["id"]),
         name=row['name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None)
@@ -503,8 +513,9 @@ with neo4j_driver.session(database="DPM") as session:
     print("Creating Site nodes...")
     for _, row in sites.iterrows():
         session.run("""
-            MERGE (s:Site {id: $id})
+            MERGE (s:Site {site_id: $site_id})
             SET 
+                s.site_id       = $site_id,
                 s.name          = $name,
                 s.description   = $description,
                 s.thingName     = $thing_name,
@@ -512,7 +523,7 @@ with neo4j_driver.session(database="DPM") as session:
                 s.timeZone      = $time_zone,
                 s.regionName    = $region_name
         """,
-        id=int(row["id"]),
+        site_id=int(row["id"]),
         name=row['name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
@@ -537,12 +548,15 @@ with neo4j_driver.session(database="DPM") as session:
     print("Creating Enterprise node...")
     for _, row in enterprises.iterrows():
         session.run("""
-            MERGE (e:Enterprise {id: $id})
-            SET e.description           = $description,
+            MERGE (e:Enterprise {enterprise_id: $enterprise_id})
+            SET 
+                e.enterprise_id         = $enterprise_id,
+                e.name                  = $name,
+                e.description           = $description,
                 e.thingName             = $thing_name,
                 e.isDefaultEnterprise   = $is_default
         """,
-        id=int(row["id"]),
+        enterprise_id=int(row["id"]),
         name=row['name'],
         description=row['description'] if pd.notna(row['description']) else None,
         thing_name=row['thing_name'] if pd.notna(row['thing_name']) else None,
